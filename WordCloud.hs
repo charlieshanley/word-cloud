@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
--- {-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wall #-}
 
 module WordCloud (counts, layoutWords) where
 
@@ -11,6 +11,7 @@ import           Data.Map (Map)
 import qualified Data.Text as T
 import           Data.Text (Text)
 import qualified Data.List as L
+import           Data.Maybe (catMaybes)
 
 
 data Rotation = Horiz | Vert deriving (Show)
@@ -23,7 +24,9 @@ alt Vert  = Horiz
 
 data Coordinates = Coordinates { x :: Int, y :: Int } deriving (Show)
 
-(*:) = Coordinates -- operator for convenience
+-- operator for convenience
+(*:) :: Int -> Int -> Coordinates
+(*:) = Coordinates 
 infixr 5 *:
 
 instance Num Coordinates where
@@ -31,10 +34,7 @@ instance Num Coordinates where
     c1 - c2 = (x c1 - x c2) *: (y c1 - y c2)
     -- partial instance; other operations undefined
 
-coordMap :: (Int -> Int) -> Coordinates -> Coordinates
-coordMap f Coordinates{..} = f x *: f y
-
-data Box = Box { topLeft :: Coordinates
+data Box = Box { topLeft  :: Coordinates
                , btmRight :: Coordinates
                } deriving (Show)
 
@@ -44,6 +44,9 @@ size Box{..} = let (Coordinates x y) = btmRight - topLeft in (x, y)
 center :: Box -> Coordinates
 center Box{..} = topLeft + coordMap (`div` 2) (btmRight - topLeft)
 
+coordMap :: (Int -> Int) -> Coordinates -> Coordinates
+coordMap f Coordinates{..} = f x *: f y
+
 ----------
 
 data Word = Word { wrd  :: Text -- the word
@@ -52,8 +55,11 @@ data Word = Word { wrd  :: Text -- the word
                  } deriving Show
 
 align :: Rotation -> Word -> Word
-align Horiz w            = w
-align Vert  (Word t l h) = Word t h l
+align Horiz w@Word{..} | wLen >= wHit = w
+align Vert  w@Word{..} | wHit >= wLen = w
+align _     (Word t l h)              = Word t h l
+
+----------
 
 counts :: [Text] -> Map Text Int
 counts = L.foldl' f M.empty 
@@ -62,18 +68,34 @@ counts = L.foldl' f M.empty
 
 
 layoutWords :: Map Text Int -> [(Word, Rotation, Coordinates)]
-layoutWords = layoutWords' Horiz [initialBox] . toWordsDesc
-    where initialBox = Box (0 *: 0) (640 *: 480) 
+layoutWords = catMaybes . snd . L.mapAccumL placeWhereCan initAcc . toWordsDesc
+    where initAcc = (Horiz, [], [Box (0 *: 0) (640 *: 480)])
 
-layoutWords' :: Rotation -> [Box] -> [Word] -> [(Word, Rotation, Coordinates)]
-layoutWords' _ _ [] = []
-layoutWords' _ [] _ = []
-layoutWords' r (b:bs) (w:ws) =
+-- placeWhereCan :: a -> b -> (a, c)
+placeWhereCan :: ( Rotation -- initial orientation
+                 , [Box]    -- boxes we tried that couldn't fit word
+                 , [Box]    -- boxes we haven't tried yet
+                 )
+              -> Word                        -- word to place
+              -> ( (Rotation, [Box], [Box])  -- new accumulator
+                 , Maybe (Word, Rotation, Coordinates) -- result
+                 )
+placeWhereCan (r, triedBs, [])          _ = ((alt r, [], triedBs), Nothing)
+placeWhereCan (r, triedBs, b:untriedBs) w =
     let w' = align r w
+        r' = alt r
      in case place b w' of
-          Nothing -> []
-          Just (coord, newBoxes) ->
-              (w', r, coord) : layoutWords' (alt r) (bs ++ newBoxes) ws
+          Just (coord, newBs) ->
+              ((r', [], triedBs ++ untriedBs ++ newBs), Just (w', r, coord))
+          Nothing -> let w'' = align r' w'
+                         r'' = alt r'
+                      in case place b w'' of
+                           Just (coord, newBs) ->
+                               ( (r'', [], triedBs ++ untriedBs ++ newBs)
+                               , Just (w'', r', coord)
+                               )
+                           Nothing -> placeWhereCan (r, b:triedBs, untriedBs) w
+
 
 place :: Box -> Word -> Maybe (Coordinates, [Box])
 place b@Box{..} w@Word{..}
