@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
-{-# OPTIONS_GHC -Wall #-}
+-- {-# OPTIONS_GHC -Wall #-}
 
 module WordCloud (counts, layoutWords) where
 
@@ -34,6 +34,11 @@ instance Num Coordinates where
     c1 - c2 = (x c1 - x c2) *: (y c1 - y c2)
     -- partial instance; other operations undefined
 
+coordMap :: (Int -> Int) -> Coordinates -> Coordinates
+coordMap f Coordinates{..} = f x *: f y
+
+----------
+
 data Box = Box { topLeft  :: Coordinates
                , btmRight :: Coordinates
                } deriving (Show)
@@ -43,9 +48,6 @@ size Box{..} = let (Coordinates x y) = btmRight - topLeft in (x, y)
 
 center :: Box -> Coordinates
 center Box{..} = topLeft + coordMap (`div` 2) (btmRight - topLeft)
-
-coordMap :: (Int -> Int) -> Coordinates -> Coordinates
-coordMap f Coordinates{..} = f x *: f y
 
 ----------
 
@@ -61,23 +63,35 @@ align _     (Word t l h)              = Word t h l
 
 ----------
 
+-- count occurrences
 counts :: [Text] -> Map Text Int
 counts = L.foldl' f M.empty 
     where f :: Map Text Int -> Text -> Map Text Int
           f m k = M.insertWith (+) k 1 m
 
+-- convert to sorted list of Words (which have area proportional to freq*wordLen )
+toWordsDesc :: Map Text Int -> [Word]
+toWordsDesc = fmap toWord . L.sortOn (negate . snd) . M.toList
+    where toWord :: (Text, Int) -> Word
+          toWord (t, i) = let pixels = round $ 8 * sqrt (fromIntegral i)
+                           in Word t (T.length t * pixels) pixels
 
+-- Layout words in 640x480 box uniformly from largest to smallest. Accumulate
+-- new boxes as the original box is subdivided by words. If a word doesn't fit 
+-- in a particular box, try the other orientation, then try the other currently
+-- existing boxes. Omit the word if no currently existing box fits it; all
+-- subsequent boxes will be smaller.
 layoutWords :: Map Text Int -> [(Word, Rotation, Coordinates)]
 layoutWords = catMaybes . snd . L.mapAccumL placeWhereCan initAcc . toWordsDesc
     where initAcc = (Horiz, [], [Box (0 *: 0) (640 *: 480)])
 
 -- placeWhereCan :: a -> b -> (a, c)
-placeWhereCan :: ( Rotation -- initial orientation
-                 , [Box]    -- boxes we tried that couldn't fit word
-                 , [Box]    -- boxes we haven't tried yet
+placeWhereCan :: ( Rotation                            -- initial orientation
+                 , [Box]                               -- boxes that couldn't fit word
+                 , [Box]                               -- boxes we haven't tried yet
                  )
-              -> Word                        -- word to place
-              -> ( (Rotation, [Box], [Box])  -- new accumulator
+              -> Word                                  -- word to place
+              -> ( (Rotation, [Box], [Box])            -- new accumulator
                  , Maybe (Word, Rotation, Coordinates) -- result
                  )
 placeWhereCan (r, triedBs, [])          _ = ((alt r, [], triedBs), Nothing)
@@ -115,13 +129,6 @@ fits :: Box -> Word -> Bool
 fits box Word{..} = wLen <= bLen && wHit <= bHit
     where (bLen, bHit) = size box
 
-
-toWordsDesc :: Map Text Int -> [Word]
-toWordsDesc = fmap toWord . L.sortOn (negate . snd) . M.toList
-    where
-        toWord :: (Text, Int) -> Word
-        toWord (t, i) = let pixels = round $ 8 * sqrt (fromIntegral i)
-                         in Word t (T.length t * pixels) pixels
 
 ----------
 -- a test case
