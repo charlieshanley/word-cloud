@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards            #-}
 -- {-# OPTIONS_GHC -Wall #-}
 
-module WordCloud (counts, layoutWords) where
+module WordCloud (counts, layoutWords, testWords, testLayout) where
 
 import Prelude hiding (Word)
 
