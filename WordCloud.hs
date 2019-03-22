@@ -16,9 +16,9 @@ import           Data.Maybe (catMaybes)
 
 data Rotation = Horiz | Vert deriving (Show)
 
-alt :: Rotation -> Rotation
-alt Horiz = Vert
-alt Vert  = Horiz
+rotate :: Rotation -> Rotation
+rotate Horiz = Vert
+rotate Vert  = Horiz
 
 ----------
 
@@ -94,15 +94,15 @@ placeWhereCan :: ( Rotation                            -- initial orientation
               -> ( (Rotation, [Box], [Box])            -- new accumulator
                  , Maybe (Word, Rotation, Coordinates) -- result
                  )
-placeWhereCan (r, triedBs, [])          _ = ((alt r, [], triedBs), Nothing)
+placeWhereCan (r, triedBs, [])          _ = ((rotate r, [], triedBs), Nothing)
 placeWhereCan (r, triedBs, b:untriedBs) w =
     let w' = align r w
-        r' = alt r
+        r' = rotate r
      in case place b w' of
           Just (coord, newBs) ->
               ((r', [], triedBs ++ untriedBs ++ newBs), Just (w', r, coord))
           Nothing -> let w'' = align r' w'
-                         r'' = alt r'
+                         r'' = rotate r'
                       in case place b w'' of
                            Just (coord, newBs) ->
                                ( (r'', [], triedBs ++ untriedBs ++ newBs)
